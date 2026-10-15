@@ -1,0 +1,6 @@
+dist
+node_modules
+public
+artifacts
+package-lock.json
+*.md
