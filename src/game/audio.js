@@ -1,6 +1,6 @@
 import { WEAPONS } from '../../shared/weapons.js';
 
-const SAMPLE_DIR = '/sounds/sfx/';
+const SAMPLE_DIR = `${import.meta.env.BASE_URL}sounds/sfx/`;
 const NORMALIZE_PEAK = 0.9;
 const NORMALIZE_MAX_GAIN = 30;
 function normalize(buffer) {
