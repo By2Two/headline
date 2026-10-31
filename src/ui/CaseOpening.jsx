@@ -31,6 +31,7 @@ export default function CaseOpening({ caseId, audio, onEquip, onClose }) {
       return;
     }
     openedRound.current = round;
+    setPhase('spin');
     const won = inventory.open(caseId);
     setPrize(won);
     setReel(
