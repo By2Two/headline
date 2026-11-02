@@ -3,6 +3,7 @@ import { outfitOf, skinOf, DEFAULT_LOOK } from '../../shared/look.js';
 import { WEAPONS } from '../../shared/weapons.js';
 import { BUILDERS } from './guns.js';
 import { applySkin } from './skins.js';
+import { animateMagParts, resetMagParts, reachOf } from './reloadAnim.js';
 
 const createMaterial = (color, roughness = 0.8, metalness = 0) =>
   new THREE.MeshStandardMaterial({ color: color, roughness: roughness, metalness: metalness });
@@ -497,6 +498,7 @@ export class CharacterRig {
     this.aimHold = 0;
     this.scopeT = 0;
     this.relT = 0;
+    this.relElapsed = 0;
     this.dead = false;
     this.skinId = 'default';
     this.setLook(look);
@@ -533,6 +535,8 @@ export class CharacterRig {
     this.weaponHolder.clear();
     const built = BUILDERS[id](false);
     const group = built.group;
+    this.built = built;
+    this.relElapsed = 0;
     this.muzzle = built.muzzle.clone();
     this.supportZ = built.support ?? SUPPORT_Z[id] ?? null;
     this.leftGrip = built.leftGrip || null;
@@ -551,6 +555,7 @@ export class CharacterRig {
     applySkin(group, this.skinId);
     const definition = WEAPONS.find((width) => width.id === id);
     this.slot = definition?.slot || 'primary';
+    this.reloadTime = definition?.reloadTime || 2.5;
     this.mode = this.lowReady
       ? 'low'
       : this.slot === 'c4' || id === 'defkit'
@@ -744,6 +749,7 @@ export class CharacterRig {
     this.swingT = Math.max(0, this.swingT - deltaTime * 3.5);
     this.aimHold = Math.max(0, this.aimHold - deltaTime);
     this.relT += ((object.reloading ? 1 : 0) - this.relT) * rate(8);
+    this.relElapsed = object.reloading ? this.relElapsed + deltaTime : 0;
     const release = this.relT;
     this.aimT +=
       ((!object.reloading && (object.aiming || this.aimHold > 0) ? 1 : 0) - this.aimT) * rate(9);
@@ -791,6 +797,26 @@ export class CharacterRig {
     this.head.rotation.z = cheek * 0.15 + scopeAmount * 0.2;
     if (!this.weapon) {
       return;
+    }
+
+    const parts = this.built;
+    let reloadMag = null;
+    let reloadProgress = -1;
+    if (parts?.mags?.length) {
+      if (object.reloading && this.mode !== 'melee') {
+        reloadProgress = Math.min(1, this.relElapsed / this.reloadTime);
+        reloadMag = animateMagParts(parts, reloadProgress);
+        for (const slide of parts.slides ?? []) {
+          slide.position.z = reloadMag.rack * 0.03;
+        }
+        this.partsMoved = true;
+      } else if (this.partsMoved) {
+        resetMagParts(parts);
+        for (const slide of parts.slides ?? []) {
+          slide.position.z = 0;
+        }
+        this.partsMoved = false;
+      }
     }
 
     const width = this.weapon;
@@ -903,7 +929,16 @@ export class CharacterRig {
         .applyQuaternion(width.quaternion)
         .add(width.position);
     }
-    if (release > 0.01 && this.mode !== 'melee') {
+    if (reloadMag?.direction && release > 0.01) {
+      const spot = parts.handTo
+        ? new THREE.Vector3(-0.01, -0.045, parts.support).add(parts.handTo)
+        : parts.mags[0].userData.bottom.clone().add(new THREE.Vector3(0, -0.02, 0));
+      const magnitude = spot
+        .addScaledVector(reloadMag.direction, reloadMag.out)
+        .applyQuaternion(width.quaternion)
+        .add(width.position);
+      handL.lerp(magnitude, release * reachOf(reloadProgress));
+    } else if (release > 0.01 && this.mode !== 'melee') {
       const magnitude = new THREE.Vector3(
         -0.02,
         -0.16 + Math.sin(this.t * 9) * 0.03 * release,

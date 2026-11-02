@@ -1208,7 +1208,7 @@ export default function Menu({
             setSettings={setSettings}
             onPlay={onPlay}
             busy={disabled || connecting}
-            inv={inv}
+            inv={opening ? { ...inv, history: inv.history.slice(0, -1) } : inv}
             onOpenCase={(id) => {
               audio?.init();
               setOpening(id);

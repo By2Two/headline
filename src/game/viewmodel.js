@@ -5,6 +5,13 @@ import { outfitOf, skinOf } from '../../shared/look.js';
 import { applySkin } from './skins.js';
 import { knifeAnim } from './knifeAnims.js';
 import {
+  animateMagParts,
+  resetMagParts,
+  reachOf,
+  seg as segment,
+  pulse as pulseOf,
+} from './reloadAnim.js';
+import {
   buildKatanaFx,
   katanaRestQuat,
   katanaArmDir,
@@ -102,6 +109,10 @@ export class Viewmodel {
 
   setWeapon(index) {
     this.inspecting = false;
+    if (this.reloadGun) {
+      this.resetReload(this.reloadGun);
+      this.reloadGun = null;
+    }
     this.cur = index;
     this.curId = WEAPONS[index]?.id;
     this.guns.forEach((gun, blend) => {
@@ -152,6 +163,86 @@ export class Viewmodel {
     this.flash.scale.setScalar(
       (0.8 + Math.random() * 0.6) * (this.guns[this.cur].silenced ? 0.3 : 1),
     );
+  }
+
+  // Reload choreography, driven by progress 0..1 of the reload timer:
+  // 0-.12 tilt, .08-.22 off-hand reaches, .22-.5 old mag pulled and dropped,
+  // .55-.8 new mag fetched and seated, .82-.96 slide/bolt/pump cycled, then settle.
+  animateReload(gun, progress) {
+    const seg = (start, end) => segment(progress, start, end);
+    const pulse = (start, end) => pulseOf(progress, start, end);
+    // Lift the gun and pitch the muzzle up so the magazine well faces the camera.
+    const tilt = seg(0, 0.15) * (1 - seg(0.85, 1));
+    const root = this.root;
+    root.position.y += tilt * 0.04;
+    root.position.z += tilt * 0.04;
+    root.rotation.x += tilt * (gun.shells ? 0.3 : 0.38);
+    root.rotation.z += tilt * 0.22;
+
+    if (gun.shells) {
+      let dip = 0;
+      for (let shell = 0; shell < 4; shell++) {
+        dip += pulse(0.12 + shell * 0.17, 0.24 + shell * 0.17);
+      }
+      root.position.y -= dip * 0.012;
+      root.rotation.x += dip * 0.03;
+      const rack = pulse(0.82, 0.96);
+      if (gun.pump) {
+        gun.pump.position.z = Math.max(dip * 0.025, rack * 0.11);
+      }
+      root.rotation.z += rack * 0.08;
+      return;
+    }
+
+    if (gun.cylinder) {
+      this.reloadSpin = seg(0.25, 0.7) * Math.PI;
+      const bump = pulse(0.15, 0.3) + pulse(0.7, 0.85);
+      root.position.y -= bump * 0.01;
+      root.rotation.x += bump * 0.04;
+      return;
+    }
+
+    const bump = pulse(0.7, 0.86);
+    root.position.y -= bump * 0.012;
+    root.rotation.x += bump * 0.03;
+
+    const { out, direction, rack } = animateMagParts(gun, progress);
+
+    const hand = gun.reloadHand;
+    if (hand && direction) {
+      if (gun.handTo) {
+        hand.position
+          .copy(gun.handTo)
+          .multiplyScalar(reachOf(progress))
+          .addScaledVector(direction, out);
+      } else {
+        const bottom = gun.mags[0].userData.bottom;
+        const reach = seg(0.08, 0.2) * (1 - seg(0.82, 0.95));
+        hand.visible = progress > 0.06 && progress < 0.97;
+        hand.position
+          .set(-0.12, -0.15, 0.08)
+          .multiplyScalar(1 - reach)
+          .add(bottom)
+          .addScaledVector(direction, out);
+      }
+    }
+    this.rack = rack;
+  }
+
+  resetReload(gun) {
+    resetMagParts(gun);
+    if (gun.reloadHand) {
+      if (gun.handTo) {
+        gun.reloadHand.position.set(0, 0, 0);
+      } else {
+        gun.reloadHand.visible = false;
+      }
+    }
+    if (gun.pump) {
+      gun.pump.position.z = 0;
+    }
+    this.reloadSpin = 0;
+    this.rack = 0;
   }
 
   inspect() {
@@ -208,11 +299,13 @@ export class Viewmodel {
     );
     this.root.rotation.set(pose.kick * 0.08, 0, 0);
 
+    this.rack = 0;
     if (pose.reload >= 0) {
-      const reloadWave = Math.sin(pose.reload * Math.PI);
-      this.root.position.y -= reloadWave * 0.1;
-      this.root.rotation.x -= reloadWave * 0.5;
-      this.root.rotation.z = reloadWave * 0.3;
+      this.reloadGun = gun;
+      this.animateReload(gun, pose.reload);
+    } else if (this.reloadGun) {
+      this.resetReload(this.reloadGun);
+      this.reloadGun = null;
     }
     this.katanaFx.group.visible = false;
     const knifeAnimation = knifeAnim(this.curId);
@@ -321,12 +414,16 @@ export class Viewmodel {
     if (pistolGun.slides) {
       for (const slide of pistolGun.slides) {
         slide.position.z *= Math.exp(-deltaTime * SLIDE_RETURN_RATE);
+        if (this.rack > 0) {
+          slide.position.z = this.rack * 0.03;
+        }
       }
     }
     if (pistolGun.hammer) {
       const primeProgress = this.prime || 0;
       pistolGun.hammer.rotation.x = primeProgress * 0.9;
-      pistolGun.cylinder.rotation.z = (this.cylSpin || 0) + primeProgress * (Math.PI / 4);
+      pistolGun.cylinder.rotation.z =
+        (this.cylSpin || 0) + (this.reloadSpin || 0) + primeProgress * (Math.PI / 4);
     }
     if (pistolGun.pump && (this.pumpT ?? null) !== null) {
       this.pumpT += deltaTime;

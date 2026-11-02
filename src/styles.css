@@ -1670,7 +1670,7 @@ label.name input,
   display: grid;
   place-items: center;
   padding: 16px;
-  background: rgba(6, 7, 6, 0.9);
+  background: rgba(6, 7, 6, 0.6);
 }
 .case-box {
   width: min(1100px, 100%);

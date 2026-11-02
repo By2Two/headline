@@ -45,8 +45,11 @@ function hands(group, withLeft, leftZ = -0.3) {
   const arm = box(0.075, 0.075, 0.45, SLEEVE, 0.04, -0.14, 0.3, 0.1);
   group.add(arm);
   if (withLeft) {
-    group.add(box(0.055, 0.05, 0.1, SKIN, -0.01, -0.045, leftZ));
-    group.add(box(0.075, 0.075, 0.45, SLEEVE, -0.08, -0.12, leftZ + 0.3, 0.25));
+    const left = new THREE.Group();
+    left.add(box(0.055, 0.05, 0.1, SKIN, -0.01, -0.045, leftZ));
+    left.add(box(0.075, 0.075, 0.45, SLEEVE, -0.08, -0.12, leftZ + 0.3, 0.25));
+    group.add(left);
+    group.userData.reloadHand = left;
   }
   return arm;
 }
@@ -181,7 +184,10 @@ function addMagazine(
     mergedBoxes(BLACK, [[width + 0.002, height * 0.36, 0.004, 0, -height * 0.25, depth * 0.2]]),
   );
   magnitude.add(lower);
+  magnitude.userData.dir = new THREE.Vector3(0, -1, 0).applyEuler(magnitude.rotation);
+  magnitude.userData.bottom = new THREE.Vector3(0, top - height, positionZ);
   group.add(magnitude);
+  return magnitude;
 }
 
 function addScope(group, { z: positionZ, size }) {
@@ -493,28 +499,43 @@ function rifleLike(config, withHands) {
   }
 
   const magZ = config.bullpup ? baseZ + length * 0.3 : baseZ - 0.06;
+  const mags = [];
+  let magSpot = null;
   if (config.mag === 'box') {
-    group.add(box(0.08, 0.12, 0.13, DARK, 0.015, -0.1, magZ));
-    group.add(
+    const drum = new THREE.Group();
+    drum.userData.dir = new THREE.Vector3(0, -1, 0);
+    drum.add(box(0.08, 0.12, 0.13, DARK, 0.015, -0.1, magZ));
+    drum.add(
       mergedBoxes(BLACK, [
         [0.082, 0.006, 0.132, 0.015, -0.1, magZ],
         [0.006, 0.08, 0.06, 0.056, -0.1, magZ],
       ]),
     );
+    group.add(drum);
+    mags.push(drum);
     group.add(box(0.02, 0.03, 0.12, mat(0xb08a3a, 0.4, 0.7), 0.04, -0.02, magZ - 0.1));
+    magSpot = { y: -0.1, z: magZ };
   } else if (config.mag === 'top') {
-    group.add(box(0.05, 0.03, length * 0.85, BLACK, 0, height / 2 + 0.016, baseZ));
-    group.add(
+    const belt = new THREE.Group();
+    belt.userData.dir = new THREE.Vector3(0, 1, 0.15);
+    belt.add(box(0.05, 0.03, length * 0.85, BLACK, 0, height / 2 + 0.016, baseZ));
+    belt.add(
       box(0.044, 0.006, length * 0.7, mat(0x3a3d42, 0.3, 0.4), 0, height / 2 + 0.033, baseZ),
     );
+    group.add(belt);
+    mags.push(belt);
+    magSpot = { y: 0.06, z: baseZ };
   } else if (config.mag !== 'none' && config.mag !== 'grip') {
     group.add(box(0.04, 0.024, 0.07, body, 0, -0.04, magZ));
-    addMagazine(group, {
-      z: magZ,
-      height: config.magH ?? 0.15,
-      curve: config.magCurve ?? 0,
-      top: -0.05,
-    });
+    mags.push(
+      addMagazine(group, {
+        z: magZ,
+        height: config.magH ?? 0.15,
+        curve: config.magCurve ?? 0,
+        top: -0.05,
+      }),
+    );
+    magSpot = { y: -0.11, z: magZ };
   }
 
   const gripZ = config.bullpup ? baseZ - length * 0.2 : baseZ + length * 0.28;
@@ -525,13 +546,16 @@ function rifleLike(config, withHands) {
     length: 0.1,
   });
   if (config.mag === 'grip') {
-    addMagazine(group, {
-      z: gripZ - 0.01,
-      height: config.magH ?? 0.15,
-      top: -0.13,
-      width: 0.028,
-      depth: 0.04,
-    });
+    mags.push(
+      addMagazine(group, {
+        z: gripZ - 0.01,
+        height: config.magH ?? 0.15,
+        top: -0.13,
+        width: 0.028,
+        depth: 0.04,
+      }),
+    );
+    magSpot = { y: -0.2, z: gripZ - 0.01 };
   }
   if (config.foregrip) {
     group.add(box(0.026, 0.07, 0.03, BLACK, 0, -0.07, (hgLength > 0 ? hgFront : front) + 0.03));
@@ -550,12 +574,17 @@ function rifleLike(config, withHands) {
   if (config.scope) {
     addScope(group, { z: baseZ - 0.03, size: config.scope });
   }
+  let boltHandle = null;
   if (config.bolt) {
-    group.add(cyl(0.004, 0.04, DARK, width / 2 + 0.018, 0.02, baseZ + length * 0.2));
-    group.children[group.children.length - 1].rotation.set(0, 0, Math.PI / 2);
+    boltHandle = new THREE.Group();
+    boltHandle.position.set(width / 2, 0.02, baseZ + length * 0.2);
+    const lever = cyl(0.004, 0.04, DARK, 0.018, 0, 0);
+    lever.rotation.set(0, 0, Math.PI / 2);
+    boltHandle.add(lever);
     const knob = new THREE.Mesh(new THREE.SphereGeometry(0.009, 10, 8), DARK);
-    knob.position.set(width / 2 + 0.04, 0.012, baseZ + length * 0.2);
-    group.add(knob);
+    knob.position.set(0.04, -0.008, 0);
+    boltHandle.add(knob);
+    group.add(boltHandle);
   }
   if (config.bipod) {
     for (const side of [-1, 1]) {
@@ -573,6 +602,10 @@ function rifleLike(config, withHands) {
     base: new THREE.Vector3(0.2, -0.2, -0.34),
     support,
     silenced: !!config.suppressor,
+    mags,
+    boltHandle,
+    reloadHand: withHands ? group.userData.reloadHand : null,
+    handTo: magSpot ? new THREE.Vector3(0.015, magSpot.y + 0.045, magSpot.z - support) : null,
   };
 }
 
@@ -693,9 +726,10 @@ function shotgunLike(config, height) {
   group.add(cyl(0.011, 0.012, BLACK, 0, 0.022, -0.2 - barrelLength - 0.004));
   group.add(sight(new THREE.Mesh(new THREE.SphereGeometry(0.004, 8, 6), STEEL)));
   group.children[group.children.length - 1].position.set(0, 0.042, -0.2 - barrelLength + 0.02);
+  const mags = [];
   if (config.mag === 'box') {
     group.add(box(0.042, 0.022, 0.08, body, 0, -0.04, -0.06));
-    addMagazine(group, { z: -0.06, height: 0.11, width: 0.04, depth: 0.07, top: -0.05 });
+    mags.push(addMagazine(group, { z: -0.06, height: 0.11, width: 0.04, depth: 0.07, top: -0.05 }));
   } else {
     group.add(cyl(0.014, barrelLength * 0.78, DARK, 0, -0.018, -0.2 - barrelLength * 0.39));
     group.add(cyl(0.016, 0.014, BLACK, 0, -0.018, -0.2 - barrelLength * 0.78));
@@ -723,6 +757,8 @@ function shotgunLike(config, height) {
     muzzle: new THREE.Vector3(0, 0.022, -0.2 - barrelLength),
     base: new THREE.Vector3(0.2, -0.2, -0.34),
     pump: config.pump ? pump : null,
+    mags,
+    shells: config.mag !== 'box',
     support: -0.32,
   };
 }
@@ -979,7 +1015,11 @@ function addPistolGrip(group, { gripMat, panelMat, rake, gripLength, gripTopZ, e
   const bottomY = centerY - (gripLength / 2) * Math.cos(rake);
   const bottomZ = centerZ + (gripLength / 2) * Math.sin(rake);
   const plateDepth = extendedMag ? 0.05 : 0.009;
-  group.add(
+  const mag = new THREE.Group();
+  mag.userData.dir = new THREE.Vector3(0, -Math.cos(rake), Math.sin(rake));
+  mag.userData.bottom = new THREE.Vector3(0, bottomY, bottomZ);
+  mag.add(box(0.024, gripLength * 0.9, 0.038, DARK, 0, centerY + 0.005, centerZ, -rake));
+  mag.add(
     box(
       0.032,
       plateDepth,
@@ -991,6 +1031,8 @@ function addPistolGrip(group, { gripMat, panelMat, rake, gripLength, gripTopZ, e
       -rake,
     ),
   );
+  group.add(mag);
+  return mag;
 }
 
 function addTriggerGuard(group, frontZ, bottomY = -0.052) {
@@ -1052,6 +1094,7 @@ function pistolLike(config, height) {
   const gripMat = config.gripMat ?? frameMat;
   const pistols = [];
   const slides = [];
+  const mags = [];
   let muzzleZ = 0;
   const buildOne = (positionX) => {
     const pistol = new THREE.Group();
@@ -1073,14 +1116,16 @@ function pistolLike(config, height) {
       }
     }
     addTriggerGuard(pistol, config.slideCut ? -0.058 : -0.05);
-    addPistolGrip(pistol, {
-      gripMat,
-      panelMat: config.panelMat ?? gripMat,
-      rake: config.rake ?? 0.22,
-      gripLength: config.gripLength ?? 0.1,
-      gripTopZ: 0.016,
-      extendedMag: config.extendedMag,
-    });
+    mags.push(
+      addPistolGrip(pistol, {
+        gripMat,
+        panelMat: config.panelMat ?? gripMat,
+        rake: config.rake ?? 0.22,
+        gripLength: config.gripLength ?? 0.1,
+        gripTopZ: 0.016,
+        extendedMag: config.extendedMag,
+      }),
+    );
     if (config.hammer) {
       pistol.add(box(0.01, 0.017, 0.01, DARK, 0, 0.02, SLIDE_BACK_Z + 0.004, -0.35));
     }
@@ -1105,11 +1150,18 @@ function pistolLike(config, height) {
     }
     muzzleZ -= 0.162;
   }
+  let reloadHand = null;
   if (height) {
     hands(group, false);
     if (config.dual) {
       pistols[1].add(box(0.05, 0.06, 0.1, SKIN, 0, -0.1, 0.03));
       pistols[1].add(box(0.075, 0.075, 0.45, SLEEVE, -0.04, -0.14, 0.3, 0.1));
+    } else {
+      reloadHand = new THREE.Group();
+      reloadHand.add(box(0.055, 0.05, 0.1, SKIN, 0, 0, 0));
+      reloadHand.add(box(0.075, 0.075, 0.45, SLEEVE, -0.04, -0.03, 0.3, 0.25));
+      reloadHand.visible = false;
+      group.add(reloadHand);
     }
   }
   return {
@@ -1117,6 +1169,8 @@ function pistolLike(config, height) {
     muzzle: new THREE.Vector3(0, 0.006, muzzleZ),
     base: new THREE.Vector3(config.dual ? 0.12 : 0.17, -0.17, -0.3),
     silenced: !!config.suppressor,
+    mags,
+    reloadHand,
     slides,
     ...(config.dual
       ? {
@@ -1155,8 +1209,12 @@ function buildTec9(height = true) {
   group.add(cyl(0.004, 0.014, BLACK, 0, 0.004, -0.212));
   group.add(box(0.005, 0.009, 0.006, DARK, 0, 0.024, -0.198));
   group.add(box(0.02, 0.01, 0.008, DARK, 0, 0.028, 0.022));
-  group.add(box(0.024, 0.12, 0.03, DARK, 0, -0.078, -0.082));
-  group.add(box(0.027, 0.01, 0.034, DARK, 0, -0.14, -0.082));
+  const tecMag = new THREE.Group();
+  tecMag.userData.dir = new THREE.Vector3(0, -1, 0);
+  tecMag.userData.bottom = new THREE.Vector3(0, -0.14, -0.082);
+  tecMag.add(box(0.024, 0.12, 0.03, DARK, 0, -0.078, -0.082));
+  tecMag.add(box(0.027, 0.01, 0.034, DARK, 0, -0.14, -0.082));
+  group.add(tecMag);
   addTriggerGuard(group, -0.06);
   addPistolGrip(group, {
     gripMat: POLY,
@@ -1172,6 +1230,7 @@ function buildTec9(height = true) {
     group: group,
     muzzle: new THREE.Vector3(0, 0.004, -0.22),
     base: new THREE.Vector3(0.17, -0.17, -0.3),
+    mags: [tecMag],
     slides: [bolt],
   };
 }
@@ -1195,7 +1254,7 @@ function buildDeagle(height = true) {
   group.add(box(0.034, 0.026, 0.19, DARK, 0, -0.023, -0.075));
   group.add(box(0.012, 0.022, 0.012, DARK, 0, 0.034, 0.045, -0.4));
   addTriggerGuard(group, -0.068, -0.058);
-  addPistolGrip(group, {
+  const deagleMag = addPistolGrip(group, {
     gripMat: POLY,
     panelMat: POLY,
     rake: 0.25,
@@ -1209,6 +1268,7 @@ function buildDeagle(height = true) {
     group: group,
     muzzle: new THREE.Vector3(0, 0.014, -0.232),
     base: new THREE.Vector3(0.17, -0.17, -0.3),
+    mags: [deagleMag],
     slides: [slide],
   };
 }
@@ -1425,6 +1485,9 @@ function compactGroup(group, skip) {
 function compactGun(built) {
   const animated = [
     ...(built.slides ?? []),
+    ...(built.mags ?? []),
+    built.reloadHand,
+    built.boltHandle,
     ...(built.pistols ?? []),
     ...(built.keys ?? []),
     built.pump,
